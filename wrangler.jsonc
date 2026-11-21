@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "poolworld-crm-web",
+  "compatibility_date": "2026-11-19",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist",
+    // Client-side routing (TanStack Router): serve index.html for unknown paths,
+    // like nginx's `try_files $uri $uri/ /index.html`.
+    "not_found_handling": "single-page-application"
+  }
+}

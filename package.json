@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build && tsc",
     "preview": "vite preview",
+    "deploy": "pnpm run build && wrangler deploy",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
@@ -55,6 +56,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "wrangler": "^4.165.0"
   }
 }
