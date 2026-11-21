@@ -35,3 +35,6 @@ src/routeTree.gen.ts
 vite.config.js
 vite.config.d.ts
 *.tsbuildinfo
+
+# Wrangler local state
+.wrangler

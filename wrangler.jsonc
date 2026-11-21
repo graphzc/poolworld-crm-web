@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "poolworld-crm-web",
+  "compatibility_date": "2026-11-21",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false,
+    "logs": {
+      "enabled": false
+    }
+  },
+  // Generates /env.js from VITE_* vars at runtime (see worker/index.ts)
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Only /env.js hits the Worker; all other paths are served straight from assets
+    "run_worker_first": ["/env.js"]
+  },
+  "vars": {
+    "VITE_API_URL": "https://api-crm.poolworldpattaya.com"
+  }
+}
