@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { MonthPicker, type YearMonth } from '@/components/ui/month-picker'
@@ -27,6 +28,7 @@ import { usePoolCareReports, useDeletePoolCareReport } from '@/hooks/usePoolCare
 import { POOL_SYSTEM_MAP } from '@/lib/constants'
 import { DayBadgeList } from '@/components/poolcare/DayBadge'
 import { DayFilter } from '@/components/poolcare/DayFilter'
+import { PoolCareReportSheet } from '@/components/poolcare/PoolCareReportSheet'
 import type { PoolCareReport } from '@/types'
 import { toast } from '@/hooks/useToast'
 
@@ -59,7 +61,9 @@ function PoolCareReportsPage() {
   const days = search.days ? search.days.split(',') : []
   const [page, setPage] = useState(1)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set())
+  // Keep the report data (not just ids) so selections made on other pages can still be printed
+  const [selectedReports, setSelectedReports] = useState<Map<string, PoolCareReport>>(new Map())
+  const [printQueue, setPrintQueue] = useState<PoolCareReport[] | null>(null)
 
   const { data, isLoading } = usePoolCareReports({
     year,
@@ -82,23 +86,28 @@ function PoolCareReportsPage() {
   }
 
   const handleSelectAll = (checked: boolean) => {
-    if (checked && data?.data) {
-      setSelectedReports(new Set(data.data.map((report) => report.id)))
-    } else {
-      setSelectedReports(new Set())
-    }
+    const pageReports = data?.data ?? []
+    const next = new Map(selectedReports)
+    pageReports.forEach((report) => {
+      if (checked) next.set(report.id, report)
+      else next.delete(report.id)
+    })
+    setSelectedReports(next)
   }
 
-  const handleSelectReport = (reportId: string, checked: boolean) => {
-    const newSelected = new Set(selectedReports)
+  const handleSelectReport = (report: PoolCareReport, checked: boolean) => {
+    const next = new Map(selectedReports)
     if (checked) {
-      newSelected.add(reportId)
+      next.set(report.id, report)
     } else {
-      newSelected.delete(reportId)
+      next.delete(report.id)
     }
-    setSelectedReports(newSelected)
+    setSelectedReports(next)
   }
 
+  // Render every selected sheet into one print-only container, then print them as a
+  // single job (one A4 page per report). Opening a window per report gets blocked by
+  // popup blockers after the first one.
   const handleBulkPrint = () => {
     if (selectedReports.size === 0) {
       toast({
@@ -108,36 +117,29 @@ function PoolCareReportsPage() {
       })
       return
     }
-
-    const baseUrl = window.location.origin
-    const reportIds = Array.from(selectedReports)
-    reportIds.forEach((reportId, index) => {
-      setTimeout(() => {
-        const printWindow = window.open(
-          `${baseUrl}/poolcare-reports/${reportId}`,
-          '_blank'
-        )
-        if (printWindow) {
-          printWindow.addEventListener('load', () => {
-            setTimeout(() => {
-              printWindow.print()
-            }, 500)
-          })
-        }
-      }, index * 1000)
-    })
-
-    toast({
-      variant: 'success',
-      title: 'เปิดหน้าต่างพิมพ์',
-      description: `กำลังเปิดหน้าต่างพิมพ์สำหรับ ${selectedReports.size} รายการ`,
-    })
+    setPrintQueue(Array.from(selectedReports.values()))
   }
+
+  useEffect(() => {
+    if (!printQueue) return
+    const previousTitle = document.title
+    // Default "Save as PDF" file name
+    document.title = `poolcare-reports_${year}-${String(month).padStart(2, '0')}`
+    const done = () => setPrintQueue(null)
+    window.addEventListener('afterprint', done)
+    // Wait one frame so the sheets are laid out before the print dialog snapshots the page
+    const frame = requestAnimationFrame(() => window.print())
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('afterprint', done)
+      document.title = previousTitle
+    }
+  }, [printQueue, year, month])
 
   const updateFilters = (next: PoolCareReportsSearch) => {
     navigate({ to: '.', search: { ...search, ...next }, replace: true })
     setPage(1)
-    setSelectedReports(new Set())
+    setSelectedReports(new Map())
   }
 
   const handlePeriodChange = (next: YearMonth) => updateFilters(next)
@@ -145,7 +147,8 @@ function PoolCareReportsPage() {
   const handleDaysChange = (next: string[]) =>
     updateFilters({ days: next.length > 0 ? next.join(',') : undefined })
 
-  const allSelected = data?.data && data.data.length > 0 && selectedReports.size === data.data.length
+  const allSelected =
+    !!data?.data.length && data.data.every((report) => selectedReports.has(report.id))
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 0
 
@@ -184,7 +187,7 @@ function PoolCareReportsPage() {
               <TableHead className="w-12">
                 <Checkbox
                   checked={allSelected}
-                  onCheckedChange={handleSelectAll}
+                  onCheckedChange={(checked) => handleSelectAll(checked === true)}
                 />
               </TableHead>
               <TableHead>ชื่อลูกค้า</TableHead>
@@ -214,7 +217,7 @@ function PoolCareReportsPage() {
                   <TableCell>
                     <Checkbox
                       checked={selectedReports.has(report.id)}
-                      onCheckedChange={(checked) => handleSelectReport(report.id, checked as boolean)}
+                      onCheckedChange={(checked) => handleSelectReport(report, checked === true)}
                     />
                   </TableCell>
                   <TableCell>
@@ -313,6 +316,57 @@ function PoolCareReportsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {printQueue &&
+        createPortal(
+          <div className="bulk-print-root">
+            {printQueue.map((report) => (
+              <PoolCareReportSheet key={report.id} report={report} className="bulk-print-sheet" />
+            ))}
+            <style>{`
+              .bulk-print-root { display: none; }
+
+              @media print {
+                @page {
+                  size: A4 landscape;
+                  margin: 0;
+                }
+
+                * {
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+
+                html, body {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                }
+
+                /* Portal is a direct child of <body>; hide the rest of the app */
+                body > *:not(.bulk-print-root) {
+                  display: none !important;
+                }
+
+                .bulk-print-root {
+                  display: block;
+                }
+
+                .bulk-print-sheet {
+                  /* a hair under 210mm so rounding never spills into a blank page */
+                  height: 209.5mm !important;
+                  overflow: hidden;
+                  break-inside: avoid;
+                  break-after: page;
+                }
+
+                .bulk-print-sheet:last-of-type {
+                  break-after: auto;
+                }
+              }
+            `}</style>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
